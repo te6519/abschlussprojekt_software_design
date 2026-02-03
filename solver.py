@@ -7,7 +7,7 @@ def solve(K: npt.NDArray[np.float64], F: npt.NDArray[np.float64], u_fixed_idx: l
     Parameters
     ----------
     K : npt.NDArray[np.float64]
-        Stiffness matrix.
+        Stiffness matrix.   
     F : npt.NDArray[np.float64]
         Force vector.
     u_fixed_idx : list[int]
