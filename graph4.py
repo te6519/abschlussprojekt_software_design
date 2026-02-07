@@ -75,20 +75,34 @@ class System:
         
     
     def assemble_global_stiffness(self):
+        if not self.nodes:
+            max_id = 0
+        else :
+            max_id = max(self.nodes.keys())
 
-        self.Kg = np.zeros((2*len(self.nodes), 2*len(self.nodes)))
+        dim = 2 * (max_id+1)
+        self.Kg = np.zeros((dim, dim))
 
         for spring in self.springs:
-            Ko_n = spring.get_single_stiffnesses()
+            #nur Federn die existieren verwenden
+            if spring.node_i.id in self.nodes and spring.node_j.id in self.nodes:
+                Ko_n = spring.get_single_stiffnesses()
+                d_o_free = spring.get_d_o_free()
+                self.Kg[np.ix_(d_o_free, d_o_free)] += Ko_n  # Eintragen in die globale Steifigkeitsmatrix am richtigen Ort
+                #ist das gleiche wie zuvor die beiden for-schleifen, nur effizienter
 
-            d_o_free = spring.get_d_o_free()
-
-            self.Kg[np.ix_(d_o_free, d_o_free)] += Ko_n  # Eintragen in die globale Steifigkeitsmatrix am richtigen Ort
-            #ist das gleiche wie zuvor die beiden for-schleifen, nur effizienter
-        
+        #Singularität bei gelöschten zeilen verhindern 
+        for i in range(dim):
+            if self.Kg[i, i] == 0.0 and np.all(self.Kg[i, :] == 0.0):
+                self.Kg[i, i] = 1.0
         return self.Kg
     
     def solve(self, eps=1e-9) -> npt.NDArray[np.float64] | None:
+        dim = self.Kg.shape[0]
+        if self.F.shape[0] < dim:
+            F_new = np.zeros(dim)
+            F_new[:self.F.shape[0]] = self.F
+            self.F = F_new
 
         assert self.Kg.shape[0] == self.Kg.shape[1], "Stiffness matrix K must be square."
         assert self.Kg.shape[0] == self.F.shape[0], "Force vector F must have the same size as K."
@@ -115,11 +129,9 @@ class System:
             try:
                 self.u = np.linalg.solve(K_calc, F_calc) # solve the linear system Ku = F
                 self.u[self.u_fixed_idx] = 0.0
-
                 return self.u
             
             except np.linalg.LinAlgError:
-                # If it is still singular we give up
                 return None
 
     def create_graph_structure(self, Nodes):
@@ -138,9 +150,10 @@ class System:
             i = spring.node_i.id
             j = spring.node_j.id
 
-            weight = spring.calc_weighting(self.u)
-
-            graph_structure.add_edge(i, j, weight=weight)
+            #Nur Federn hinzufügen, wenn BEIDE Knoten noch existieren!
+            if i in Nodes and j in Nodes:
+                weight = spring.calc_weighting(self.u)
+                graph_structure.add_edge(i, j, weight=weight)
         
         for node in Nodes.values():
             graph_structure.add_node(node.id)
@@ -152,7 +165,6 @@ class System:
         dict_to_sort = dict()
 
         for node in self.nodes.values():    #für alle Nodes in nodes(dict)
-            
             total_work_for_node = 0.0
 
             for edge in self.graph_structure.edges(node.id, data=True):
@@ -166,71 +178,99 @@ class System:
                 else:
                     total_work_for_node += single_weight/2 # da jede Kante zu 2 Knoten gehört-->/2
 
-                dict_to_sort[node.id] = total_work_for_node
+            dict_to_sort[node.id] = total_work_for_node
 
-        sorted_dict = dict(sorted(dict_to_sort.items()))
+        sorted_dict = dict(sorted(dict_to_sort.items(), key=lambda item: item[1]))
         self.ids_sorted = list(sorted_dict.keys())
         print(f"{self.ids_sorted=}")
 
         return self.ids_sorted
-
+    
     def reduce_mass(self, del_amount: int):
-
-        self.mass = len(self.nodes) #weil jeder Knoten 1 kg wiegt
+        self.mass = len(self.nodes)
         i = 0
         j = 0
-        nodes_copied = self.nodes.copy()
-        new_list_of_ids_sorted = None
-        force_nodes = set() #Knoten wo Kräfte wirken
-        fixed_nodes = set() #fixe Knoten
-        # Vorher wurde es mit einer liste gemacht, aber bei beretis einige zusätzlcihe Knoten, dauerte es bereits Minuten zum Ergebnsi
-        #deshalb wird jetzt anstelle von einer lsite mit set() gearbeitet
-        #vorteil set: schnell und keine doppelten einträge möglich
-        does_path_exist = False
-
+        force_nodes = set()
+        fixed_nodes = set()
+        #schaut auf welchem Knoten eine Kraft wirkt und sie in force_nodes
         while i < len(self.F):
-
             if self.F[i] != 0.0 or self.F[i+1] != 0.0:
-                force_nodes.add(i//2)
-            
+                force_nodes.add(i // 2)
+            #schaut ob der Knoten ein fester Knoten ist
             if i in self.u_fixed_idx or i+1 in self.u_fixed_idx:
-                fixed_nodes.add(i//2)
-
+                fixed_nodes.add(i // 2)
             i += 2
-        
-        new_list_of_ids_sorted=self.ids_sorted[0]#braucht man für die folgenden while schleife
-        
-        while j < del_amount:
 
-            node_to_delete = new_list_of_ids_sorted[0] #der "unwichtigste" Knoten, der gelöscht werden soll, ist immer der erste in der Liste ids_sorted, da sie nach Relevanz sortiert ist
-            new_list_of_ids_sorted = new_list_of_ids_sorted.pop(0)
-            nodes_copied.pop(node_to_delete)
+        #Kopie der Liste
+        candidates = self.ids_sorted.copy() 
+
+        # Wir laufen so lange, wie wir noch löschen müssen (j < del_amount)
+        # UND solange wir noch Kandidaten in der Liste haben (len(candidates) > 0)
+        while j < del_amount :
+
+            self.assemble_global_stiffness()
+            self.solve() 
+            self.create_graph_structure(None)
+            self.sort_nodes_by_relevance()
+            candidates = self.ids_sorted.copy()
+
+            if not candidates:
+                print("Keine Kandidaten mehr zum Löschen übrig.")
+                break
             
-            j += 1
+            while len(candidates) > 0:
+                node_to_delete = candidates.pop(0) 
 
-            new_graph_w_reduced_nodes=self.create_graph_structure(nodes_copied)
+                # Arbeitskopie erstellen für diesen Versuch
+                nodes_try = self.nodes.copy()
+                
+                # Versuchen zu löschen
+                if node_to_delete in nodes_try:
+                    nodes_try.pop(node_to_delete)
+                else:
+                    continue # Falls Knoten schon weg ist (sollte nicht passieren), weiter
 
-            for force_node in force_nodes:
+                # Graphen bauen für den Check
+                new_graph_w_reduced_nodes = self.create_graph_structure(nodes_try)
 
-                for fixed_node in fixed_nodes:
-                    if nx.has_path(new_graph_w_reduced_nodes, self.nodes[force_node], self.nodes[fixed_node]):
-                        does_path_exist = True
-                        break
-                    else:
-                        does_path_exist = False
-                    
-        
-            if not does_path_exist:
-                nodes_copied=self.nodes.copy() #wenn kein Pfad existiert, dann wird der ursprüngliche Graph mit allen Knoten wiederhergestellt
-                new_graph_w_reduced_nodes=None
+                # Prüfen ob der Pfad noch existiert
+                does_path_exist = True
+                
+                # Wenn es gar keine Force-Knoten oder Fixed-Knoten gibt, ist der Pfad egal/nicht prüfbar
+                if not force_nodes or not fixed_nodes:
+                    does_path_exist = True 
+                else:
+                    for force_node in force_nodes:
+                        for fixed_node in fixed_nodes:
+                            # Wichtig: Prüfen ob die Knoten noch im Graphen sind
+                            if force_node in new_graph_w_reduced_nodes and fixed_node in new_graph_w_reduced_nodes:
+                                if nx.has_path(new_graph_w_reduced_nodes, force_node, fixed_node):
+                                    does_path_exist = True
+                                    break # Ein Pfad reicht uns (meistens)
+                                else:
+                                    does_path_exist = False
+                            else:
+                                # Wenn ein wichtiger Start/Endknoten fehlt -> Pfad kaputt
+                                does_path_exist = False 
+                        
+                        if does_path_exist: 
+                            break
 
-            else:
-                self.nodes = nodes_copied
-                self.graph_structure = new_graph_w_reduced_nodes
-        
+                if does_path_exist:
+                    # ERFOLG: Wir übernehmen die Änderung
+                    self.nodes = nodes_try # Den echten Zustand aktualisieren
+                    self.graph_structure = new_graph_w_reduced_nodes
+                    j += 1 # Ein Ziel erreicht!
+                    print(f"Knoten {node_to_delete} erfolgreich gelöscht. ({j}/{del_amount})")
+                    break # Wir gehen zurück in die äußere Schleife, um den nächsten Knoten zu löschen (und nicht sofort den nächsten Kandidaten nehmen)
+                else:
+                    # FEHLSCHLAG: Wir machen NICHTS am System
+                    # Wir erhöhen j NICHT, weil wir ja nichts gelöscht haben.
+                    # Wir gehen einfach in die nächste Runde und nehmen den nächsten Kandidaten aus 'candidates'.
+                    print(f"Knoten {node_to_delete} konnte nicht gelöscht werden (Pfad unterbrochen).")
+
         reduced_mass = len(self.nodes)
-
-        return (reduced_mass)
+        return reduced_mass
 
         
 
@@ -266,15 +306,12 @@ if __name__ == "__main__":
     F = np.zeros(2*len(nodes_uebergabe))
     F[2] = 10.0  # apply force at node 1 in x-direction
 
-    u = system.solve(F, u_fixed_idx)
-
+    system.set_boundary_conditions(F, u_fixed_idx)  #Randbedingungen setzen
+    u = system.solve()   
     print(f"{u=}")
 
-    graph_structure = system.create_graph_structure()
-    
-    system.sort_nodes_by_relevance(u_fixed_idx, F)
-
-    nx.draw(graph_structure, with_labels=True, node_color='lightblue', edge_color='gray')
+    graph_structure = system.create_graph_structure(None)
+    system.sort_nodes_by_relevance()
+    system.reduce_mass(1)
+    nx.draw(system.graph_structure, with_labels=True, node_color='lightblue', edge_color='gray')
     plt.show()
-
-    calc.mass(zielmasse=3)
