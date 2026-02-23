@@ -2,6 +2,7 @@ import numpy as np
 import numpy.typing as npt
 import networkx as nx
 import matplotlib.pyplot as plt
+import json
 
 class Node:
     def __init__(self, id: int, x: float, z: float):
@@ -192,7 +193,38 @@ class System:
 
         return self.ids_sorted
     
-    def reduce_mass(self, del_amount: int):
+    def save_to_dict(self) -> dict:
+        """Serialisiert das System in ein dict für JSON-Export."""
+        nodes_data = {str(nid): {"x": n.x, "z": n.z} for nid, n in self.nodes.items()}
+        springs_data = [[s.node_i.id, s.node_j.id] for s in self.springs]
+        return {
+            "nodes": nodes_data,
+            "springs": springs_data,
+            "F": self.F.tolist() if self.F is not None else [],
+            "u_fixed_idx": self.u_fixed_idx if self.u_fixed_idx is not None else []
+        }
+
+    @classmethod
+    def load_from_dict(cls, data: dict) -> 'System':
+        """Rekonstruiert ein System aus einem gespeicherten dict."""
+        nodes = {}
+        for nid_str, ndata in data["nodes"].items():
+            nid = int(nid_str)
+            nodes[nid] = Node(nid, ndata["x"], ndata["z"])
+
+        springs = []
+        for i_id, j_id in data["springs"]:
+            if i_id in nodes and j_id in nodes:
+                springs.append(Spring(nodes[i_id], nodes[j_id]))
+
+        system = cls(nodes, springs)
+        if data.get("F"):
+            system.F = np.array(data["F"])
+        if data.get("u_fixed_idx"):
+            system.u_fixed_idx = data["u_fixed_idx"]
+        return system
+
+    def reduce_mass(self, del_amount: int, callback=None):
         self.mass = len(self.nodes)
         i = 0
         j = 0
@@ -274,6 +306,9 @@ class System:
                     self.graph_structure = new_graph_w_reduced_nodes
                     j += 1
                     print(f"Knoten {node_to_delete} erfolgreich gelöscht. ({j}/{del_amount})")
+                    # Callback für Zwischenschritt-Visualisierung
+                    if callback is not None:
+                        callback(j, del_amount, self)
                     break 
                 else:
                     # Wir gehen einfach in die nächste Runde und nehmen den nächsten Kandidaten
@@ -319,15 +354,75 @@ def create_mbb_beam(width: int, height: int) -> tuple[dict[int, Node], list[Spri
     
     return nodes, springs
 
-def plot_structure(system: System, title: str = "Struktur", show_labels: bool = False, colormap: str = "viridis") -> plt.Figure:
+
+def create_from_image(image_array, threshold: int = 128):
+    #Erstellt Knoten & Federn aus einem Grayscale-Bild.
+    img_h, img_w = image_array.shape
+    nodes = dict()
+    springs = []
+
+    # Knoten nur dort erstellen, wo Pixel dunkel genug ist
+    for x in range(img_w):
+        for z in range(img_h):
+            if image_array[z, x] < threshold:
+                z_s = img_h - 1 - z          
+                node_id = x * img_h + z_s    
+                nodes[node_id] = Node(node_id, float(x), float(z_s))
+
+    # Federn zwischen benachbarten existierenden Knoten
+    for x in range(img_w):
+        for z_s in range(img_h):
+            u = x * img_h + z_s
+            if u not in nodes:
+                continue
+
+            # Nach rechts
+            if x < img_w - 1:
+                v = (x + 1) * img_h + z_s
+                if v in nodes:
+                    springs.append(Spring(nodes[u], nodes[v]))
+
+                # Diagonal nach rechts oben
+                if z_s < img_h - 1:
+                    v_diag = (x + 1) * img_h + (z_s + 1)
+                    if v_diag in nodes:
+                        springs.append(Spring(nodes[u], nodes[v_diag]))
+
+            # Nach oben
+            if z_s < img_h - 1:
+                v = x * img_h + (z_s + 1)
+                if v in nodes:
+                    springs.append(Spring(nodes[u], nodes[v]))
+
+                # Diagonal nach links oben
+                if x > 0:
+                    v_diag_left = (x - 1) * img_h + (z_s + 1)
+                    if v_diag_left in nodes:
+                        springs.append(Spring(nodes[u], nodes[v_diag_left]))
+
+    return nodes, springs, img_w, img_h
+
+
+def plot_structure(system: System, title: str = "Struktur", show_labels: bool = False, colormap: str = "viridis", deformation_scale: float = 0.0) -> plt.Figure:
     fig, ax = plt.subplots(figsize=(10, 5))
-    
+
+    #verschobene Koordinaten berechnen
+    def get_pos(node):
+        x, z = node.x, node.z
+        if deformation_scale > 0 and system.u is not None:
+            idx = node.id
+            if 2*idx+1 < len(system.u):
+                x += deformation_scale * system.u[2*idx]
+                z += deformation_scale * system.u[2*idx+1]
+        return x, z
+
     # Koordinaten sammeln
     x_vals = []
     z_vals = []
     for node in system.nodes.values():
-        x_vals.append(node.x)
-        z_vals.append(node.z)
+        px, pz = get_pos(node)
+        x_vals.append(px)
+        z_vals.append(pz)
     
     ax.scatter(x_vals, z_vals, c='black', s=10, zorder=5)
 
@@ -353,7 +448,7 @@ def plot_structure(system: System, title: str = "Struktur", show_labels: bool = 
         norm_energies = log_energies / max_log
     else:
         norm_energies = [0] * len(system.springs)
-    
+
     # Schleife fürs Zeichnen
     cmap = plt.get_cmap(colormap)
     #Heatmap
@@ -362,19 +457,20 @@ def plot_structure(system: System, title: str = "Struktur", show_labels: bool = 
         color = cmap(val_norm)
         # Dicke Linien für wichtige Elemente
         weight = 1.0 + 2.0 * val_norm 
-        
-        ax.plot([spring.node_i.x, spring.node_j.x], 
-                [spring.node_i.z, spring.node_j.z], 
+
+        x_i, z_i = get_pos(spring.node_i)
+        x_j, z_j = get_pos(spring.node_j)
+        ax.plot([x_i, x_j], [z_i, z_j], 
                 color=color, linewidth=weight, alpha=0.8)
 
     if show_labels:
         for node in system.nodes.values():
-            ax.text(node.x, node.z, str(node.id), fontsize=6, color='red')
-            
+            px, pz = get_pos(node)
+            ax.text(px, pz, str(node.id), fontsize=6, color='red')
+
     ax.set_title(title)
     ax.set_aspect('equal')
-    ax.axis('off') 
-    
+    ax.axis('off')
     return fig
 
 if __name__ == "__main__":
@@ -382,7 +478,6 @@ if __name__ == "__main__":
     # 1. Gitter erzeugen
     width = 40   # Knoten horizontal
     height = 10  # Knoten vertikal
-
     nodes, springs = create_mbb_beam(width, height)    
 
     system = System(nodes, springs)
