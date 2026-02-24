@@ -255,15 +255,21 @@ if start_btn:
 if "latest_system_state" in st.session_state and st.session_state.latest_system_state is not None:
     st.warning("Einen unterbrochenen Optimierungszustand gefunden.")
     
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     with col1:
+        if st.button("▶️ Weiterführen (Resume)"):
+            st.session_state.loaded_data = st.session_state.latest_system_state
+            st.session_state.latest_system_state = None
+            st.rerun()
+            
+    with col2:
         st.download_button(
-            label="💾 Unterbrochenen Stand speichern (JSON)",
+            label="💾 Stand speichern (JSON)",
             data=json.dumps(st.session_state.latest_system_state, indent=2),
             file_name="topologie_zwischenstand.json",
             mime="application/json"
         )
-    with col2:
-        if st.button("🗑️ Zwischenstand verwerfen"):
+    with col3:
+        if st.button("🗑️ Verwerfen"):
             st.session_state.latest_system_state = None
             st.rerun()
