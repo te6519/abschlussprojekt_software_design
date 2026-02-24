@@ -168,33 +168,47 @@ class System:
 
         return graph_structure        
 
-    def sort_nodes_by_relevance(self)-> list [int]:
-
-        dict_to_sort = dict()
-
-        for node in self.nodes.values():    #für alle Nodes in nodes(dict)
-            total_work_for_node = 0.0
+    def sort_nodes_by_relevance(self, abstand: float = 1.5) -> list[int]:    
+        raw_energy = dict()
+        
+        for node in self.nodes.values():
+            total_work = 0.0
 
             for edge in self.graph_structure.edges(node.id, data=True):
                 u, v, data = edge
                 single_weight = data['weight']
+                total_work += single_weight / 2.0  # Jede Kante gehört zu 2 Knoten
+            raw_energy[node.id] = total_work
+
+        dict_to_sort = dict()
+
+        #sensitivitätsfilter (Nachbarschafts-Gewichtung):
+        #So wollen wir verhindern, dass einzelne Stränge im Tragwerk entstehen, indem man versucht das Material beieinander zu behalten, denn ansonsten können die einzelnen stränge zwar Energie aufnehemen, sind aber
+        #realisitisch gesehen komplett unbrauchbar da sie bei kleinsten äußeren Einflüssen wegknicken würden
+
+        for node in self.nodes.values():
+            #wie vorher
+            is_fixed = (2 * node.id) in self.u_fixed_idx or (2 * node.id + 1) in self.u_fixed_idx
+            is_force = self.F[2*node.id] != 0.0 or self.F[2*node.id+1] != 0.0
+
+            if is_fixed or is_force:
+                dict_to_sort[node.id] = float('inf')
+            else:
+                total = 0.0
                 
-                # Sicherstellung, dass die "wichtigsten" Knoten (fixe und Knoten mit Kräften) nie rausgelöscht werden
-                is_fixed = (2 * node.id) in self.u_fixed_idx or (2 * node.id + 1) in self.u_fixed_idx
-                is_force = self.F[2*node.id] != 0.0 or self.F[2*node.id+1] != 0.0
+                for neighbor in self.nodes.values():
+                    # Geometrischen Abstand berechnen
+                    dist = np.sqrt((node.x - neighbor.x)**2 + (node.z - neighbor.z)**2)
+                    
+                    if dist <= abstand:
+                        weight = abstand - dist
+                        total += weight * raw_energy[neighbor.id]
 
-                if is_fixed or is_force:
-                    total_work_for_node = float('inf') # fixe oder Knoten wo F wirkt nach unten sortieren
-                    #damit sie nie aufgrund von Topologieoptimierung rausgelöscht werden
-                else:
-                    total_work_for_node += single_weight/2 # da jede Kante zu 2 Knoten gehört-->/2
+                dict_to_sort[node.id] = total
 
-            dict_to_sort[node.id] = total_work_for_node
-
+        #wiederum sortieren, damit die Knoten mit der geringsten Energie (also die "unwichtigsten") zuerst gelöscht werden
         sorted_dict = dict(sorted(dict_to_sort.items(), key=lambda item: item[1]))
         self.ids_sorted = list(sorted_dict.keys())
-        print(f"{self.ids_sorted=}")
-
         return self.ids_sorted
     
     def save_to_dict(self) -> dict:
@@ -250,7 +264,6 @@ class System:
              self.create_graph_structure(None)
              self.sort_nodes_by_relevance()
 
-        #Kopie der Liste
         candidates = self.ids_sorted.copy() 
 
         # Wir laufen so lange, wie wir noch löschen müssen (j < del_amount)
@@ -304,6 +317,19 @@ class System:
                         
                         if does_path_exist: 
                             break
+                
+                #Kinematische Stabilitätsprüfung
+                #Verhindert, dass Knoten gelöscht werden, deren Fehlen zu instabilen Einzelsträngen führen würde.
+
+                if does_path_exist:
+                    for node_id in new_graph_w_reduced_nodes.nodes():
+
+                        if node_id not in force_nodes and node_id not in fixed_nodes:
+                            # Ein interner Fachwerkknoten braucht mind. 3 Federn, sonst ist es ein loser Faden
+                            if new_graph_w_reduced_nodes.degree(node_id) < 3:
+                                does_path_exist = False
+                                break # Abbruch, diese Löschung erzeugt einen instabilen Strang!
+
 
                 if does_path_exist:
                     self.nodes = nodes_try # Den echten Zustand aktualisieren

@@ -53,7 +53,7 @@ with st.sidebar:
         help="Pro Zeile: Knoten-ID, Fx, Fz\nBeispiel:\n54, 0, -10\n27, 5, 0")
 
     st.header("4. Optimierung")
-    remove_pct = st.slider("Masse entfernen (%)", 0, 80, 50)
+    remove_pct = st.slider("Masse entfernen (%)", 0, 40, 30)
 
     st.header("5. Visualisierung")
     show_labels      = st.checkbox("Knoten-IDs anzeigen",     value=False)
