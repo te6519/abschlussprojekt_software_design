@@ -19,8 +19,16 @@ if "loaded_data" not in st.session_state:
 with st.sidebar:
 
     st.header("1. Gitter-Einstellungen")
-    width  = st.slider(" Halbe Breite (Knoten)",  min_value=17, max_value=27, value=20)
-    height = st.slider("Höhe (Knoten)",    min_value=6, max_value=20, value=10)
+    #Um zwischen asymetrische und symmetrische Balken zu unterscheiden:
+    mode = st.radio("Berechnungsmodus", ["Symmetrisch (MBB-Halbmodell)", "Universell (Vollmodell)"])
+    is_symmetric = (mode == "Symmetrisch (MBB-Halbmodell)")
+
+    if is_symmetric:
+        width = st.slider("Halbe Breite (Knoten)", min_value=10, max_value=40, value=20)
+    else:
+        width = st.slider("Gesamtbreite (Knoten)", min_value=20, max_value=80, value=40)
+        
+    height = st.slider("Höhe (Knoten)", min_value=6, max_value=20, value=10)
 
     st.header("📂 Laden")
     uploaded_file = st.file_uploader("Struktur laden (.json)", type="json")
@@ -51,24 +59,39 @@ with st.sidebar:
     st.header("2. Randbedingungen")
     st.caption("Knoten-ID = Spalte × Höhe + Zeile  (ab 0)")
 
-    festlager_input = st.text_input(
-        "Festlager-Knoten (x+z fest)", value="",
-        help="Kommagetrennte Knoten-IDs, z.B. '0, 5'")
+    # WICHTIG: Variable immer definieren, damit es unten keinen Fehler gibt!
+    festlager_input = ""
+    if not is_symmetric:
+        festlager_input = st.text_input(
+            "Festlager-Knoten (x+z fest)", value="0",
+            help="Kommagetrennte Knoten-IDs, z.B. '0, 5'")
 
-    #default_rollenlager = str((width - 1) * height)
-    rollenlager_input = st.text_input(
-        "Rollenlager-Knoten (nur z fest)", value="0",#an id-stelle 0
+        rollenlager_input = st.text_input(
+        "Rollenlager-Knoten (nur z fest)", value = width*height - height,
         help="Kommagetrennte Knoten-IDs")
+    else:
+        rollenlager_input = st.text_input(
+            "Rollenlager-Knoten (nur z fest)", value="0",
+            help="Kommagetrennte Knoten-IDs")
 
     st.header("3. Externe Kräfte")
-    default_force_node = str((width // 2) * height + (height - 1))
-    kraefte_input = st.text_area(
-        "Kräfte (Knoten, Fx, Fz)",
-        value=f"{default_force_node}, 0, -10",
-        help="Pro Zeile: Knoten-ID, Fx, Fz\nBeispiel:\n54, 0, -10\n27, 5, 0")
+    
+    if is_symmetric:
+        st.info("Im Symmetriemodus greift die Kraft automatisch am Symmetriepunkt oben rechts an.")
+        kraefte_input = st.text_input("Kräfte (Fx, Fz)", value="0, -10", help="Beispiel: 0, -10")
+
+    else:
+        default_force_node = str((width // 2) * height + (height - 1))
+        kraefte_input = st.text_area(
+            "Kräfte (Knoten, Fx, Fz)",
+            value=f"{default_force_node}, 0, -10",
+            help="Pro Zeile: Knoten-ID, Fx, Fz\nBeispiel:\n54, 0, -10\n27, 5, 0")
 
     st.header("4. Optimierung")
-    remove_pct = st.slider("Masse entfernen (%)", 0, 40, 30)
+    if is_symmetric:
+        remove_pct = st.slider("Masse entfernen (%)", 0, 40, 30)
+    else:
+        remove_pct = st.slider("Masse entfernen (%)", 0, 80, 30)
 
     st.header("5. Visualisierung")
     show_labels      = st.checkbox("Knoten-IDs anzeigen",     value=False)
@@ -120,7 +143,6 @@ def figure_to_png_bytes(fig):
 
 # ── Struktur erstellen & Vorschau ──────────────────────────
 # Struktur erstellen: Canvas > Bild > JSON > Gitter
-is_mbb = False
 if use_canvas and canvas_result is not None and canvas_result.image_data is not None:
     canvas_img = Image.fromarray(canvas_result.image_data.astype("uint8"), "RGBA").convert("L")
     if max(canvas_img.size) > 30:
@@ -146,44 +168,52 @@ elif st.session_state.loaded_data is not None:
 else:
     nodes, springs = create_mbb_beam(width, height)
     system = System(nodes, springs)
-    is_mbb = True
 
 # Randbedingungen setzen
 festlager_ids   = parse_node_ids(festlager_input)
 rollenlager_ids = parse_node_ids(rollenlager_input)
 
+max_id = max(nodes.keys())
+dim = 2 * (max_id + 1)
+F = np.zeros(dim)
 u_fixed_idx = []
+
 for nid in festlager_ids:
     u_fixed_idx.append(2 * nid)     # x-fixed
     u_fixed_idx.append(2 * nid + 1) # z-fixed
 for nid in rollenlager_ids:
     u_fixed_idx.append(2 * nid + 1) # z-fixed
 
-#Alle Knoten in der letzten Spalte (width - 1) dürfen nicht nach links/rechts (nur MBB)
-if is_mbb:
+if is_symmetric:
+    # Symmetriekante in x-Richtung fixieren
     for row in range(height):
         sym_node_id = (width - 1) * height + row
-        if sym_node_id in nodes:
-            u_fixed_idx.append(2 * sym_node_id) # NUR x-Richtung fixieren
+        u_fixed_idx.append(2 * sym_node_id) 
 
-max_id = max(nodes.keys())
-dim = 2 * (max_id + 1)
-F = parse_forces(kraefte_input, dim)
+    # Kraft oben rechts
+    force_node_id = (width - 1) * height + (height - 1)
+    try:
+        # Liest z.B. "0, -10" ein
+        parts = kraefte_input.split(',')
+        if len(parts) == 2:
+            fx = float(parts[0].strip())
+            fz = float(parts[1].strip())
+            F[2 * force_node_id] += fx
+            F[2 * force_node_id + 1] += fz
+    except ValueError:
+        st.error("Fehlerhafte Krafteingabe! Bitte im Format 'Fx, Fz' eingeben, z.B. '0, -10'")
 
-force_node_id = (width - 1) * height + (height - 1) #Kraftangriffspunkt jetzt oben rechts
-if force_node_id not in nodes:
-    # Fallback: höchster existierender Knoten
-    force_node_id = max_id
-F = np.zeros(dim)
-F[2 * force_node_id + 1] = -10 # Kraft nach unten am Symmetriepunkt
+else:
+    F = parse_forces(kraefte_input, dim)
 
 system.set_boundary_conditions(F, u_fixed_idx)
+
 
 # Ausgangszustand berechnen und anzeigen
 st.subheader("Ausgangszustand")
 system.assemble_global_stiffness()
 system.solve()
-if is_mbb:
+if is_symmetric:
     st.pyplot(plot_full_mbb(system, "Ausgangsstruktur", "jet", deformation_scale, show_labels))
 else:
     st.pyplot(plot_structure(system, "Ausgangsstruktur", show_labels, "jet", deformation_scale))
@@ -234,7 +264,7 @@ if start_btn:
         st.subheader("Optimiertes Ergebnis")
         st.success(f"Verbleibende Masse: {remaining} Knoten (-{remove_pct}%)")
 
-        if is_mbb:
+        if is_symmetric:
             result_fig = plot_full_mbb(system, "Optimiertes Ergebnis", "jet", 0.01, show_labels)
         else:
             result_fig = plot_structure(system, "Optimiertes Ergebnis", show_labels, "jet", 0.01)

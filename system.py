@@ -103,7 +103,7 @@ class System:
         dim = self.Kg.shape[0]
         if self.F.shape[0] != dim:
             F_new = np.zeros(dim)
-            # Kopiere so viel wie möglich (das kleinere von beiden)
+
             min_len = min(self.F.shape[0], dim)
             F_new[:min_len] = self.F[:min_len]
             self.F = F_new
@@ -114,7 +114,6 @@ class System:
         K_calc = self.Kg.copy()
         F_calc = self.F.copy()
 
-        # Nur gültige Indizes für die aktuelle Matrixgröße verwenden
         current_dim = K_calc.shape[0]
         valid_fixed_idx = [idx for idx in self.u_fixed_idx if idx < current_dim]
 
@@ -158,7 +157,7 @@ class System:
             i = spring.node_i.id
             j = spring.node_j.id
 
-            #Nur Federn hinzufügen, wenn BEIDE Knoten noch existieren!
+            #Nur Federn hinzufügen, wenn beide Knoten noch existieren
             if i in Nodes and j in Nodes:
                 weight = spring.calc_weighting(self.u)
                 graph_structure.add_edge(i, j, weight=weight)
@@ -177,7 +176,7 @@ class System:
             for edge in self.graph_structure.edges(node.id, data=True):
                 u, v, data = edge
                 single_weight = data['weight']
-                total_work += single_weight / 2.0  # Jede Kante gehört zu 2 Knoten
+                total_work += single_weight / 2.0  # Denn jede Kante gehört zu 2 Knoten
             raw_energy[node.id] = total_work
 
         dict_to_sort = dict()
@@ -292,13 +291,10 @@ class System:
                 else:
                     continue # Falls Knoten schon weg ist
 
-                # Graphen bauen für den Check
                 new_graph_w_reduced_nodes = self.create_graph_structure(nodes_try)
 
-                # Prüfen ob der Pfad noch existiert
                 does_path_exist = True
                 
-                # Wenn es gar keine Force-Knoten oder Fixed-Knoten gibt, ist der Pfad egal/nicht prüfbar
                 if not force_nodes or not fixed_nodes:
                     does_path_exist = True 
                 else:
@@ -344,7 +340,7 @@ class System:
                             return len(self.nodes)
                     break 
                 else:
-                    # Wir gehen einfach in die nächste Runde und nehmen den nächsten Kandidaten
+                    # Wir gehen in die nächste Runde und nehmen den nächsten Kandidaten
                     print(f"Knoten {node_to_delete} konnte nicht gelöscht werden (Pfad unterbrochen).")
 
         reduced_mass = len(self.nodes)
@@ -402,7 +398,6 @@ def create_from_image(image_array, threshold: int = 128):
                 node_id = x * img_h + z_s    
                 nodes[node_id] = Node(node_id, float(x), float(z_s))
 
-    # Federn zwischen benachbarten existierenden Knoten
     for x in range(img_w):
         for z_s in range(img_h):
             u = x * img_h + z_s
@@ -449,15 +444,12 @@ def plot_structure(system: System, title: str = "Struktur", show_labels: bool = 
                 z += deformation_scale * system.u[2*idx+1]
         return x, z
 
-    # Koordinaten sammeln
     x_vals = []
     z_vals = []
     for node in system.nodes.values():
         px, pz = get_pos(node)
         x_vals.append(px)
         z_vals.append(pz)
-    
-    ax.scatter(x_vals, z_vals, c='black', s=10, zorder=5)
 
     # Energie berechnen für Heatmap
     valid_springs = []
@@ -488,7 +480,6 @@ def plot_structure(system: System, title: str = "Struktur", show_labels: bool = 
     for idx, spring in enumerate(valid_springs):
         val_norm = norm_energies[idx]
         color = cmap(val_norm)
-        # Dicke Linien für wichtige Elemente
         weight = 1.0 + 2.0 * val_norm 
 
         x_i, z_i = get_pos(spring.node_i)
@@ -535,7 +526,6 @@ def plot_full_mbb(system, title="Optimierte Gesamtstruktur", colormap="jet", def
                 energies.append(val)
                 valid_springs.append(s)
 
-    # Normierung der Farben wie in plot_structure
     if energies:
         log_energies = np.log1p(energies)
         max_log = max(log_energies) if max(log_energies) > 0 else 1.0
@@ -568,29 +558,28 @@ def plot_full_mbb(system, title="Optimierte Gesamtstruktur", colormap="jet", def
     ax.set_aspect('equal')
     ax.axis('off')
     return fig
+
+
 if __name__ == "__main__":
 
-    # 1. Gitter erzeugen
-    width = 40   # Knoten horizontal
-    height = 10  # Knoten vertikal
+    width = 40
+    height = 10
     nodes, springs = create_mbb_beam(width, height)    
 
     system = System(nodes, springs)
 
-    # 2. Randbedingungen
-    # Links unten (x=0, z=0): FESTLAGER (x und z fixiert)
     bottom_left = 0 * height + 0  # = 0
     
-    # Rechts unten (x=width-1, z=0): ROLLENLAGER (nur z fixiert)
+    #ROLLENLAGER (nur z fixiert)
     bottom_right = (width - 1) * height + 0
 
     u_fixed_idx = [
-        2 * bottom_left,       # x-Richtung fest (Festlager)
-        2 * bottom_left + 1,   # z-Richtung fest (Festlager)
-        2 * bottom_right + 1   # z-Richtung fest (Rollenlager, x ist frei)
+        2 * bottom_left,       # x-Festlager
+        2 * bottom_left + 1,   # z-Festlager
+        2 * bottom_right + 1   # z-Rollenlager fix, x frei)
     ]
 
-    # 3. Kraft F oben in der Mitte, nach unten
+    #Kraft F oben in der Mitte
     F = np.zeros(2 * len(nodes))
     top_center = (width // 2) * height + (height - 1)
     F[2 * top_center + 1] = -0.1  # Kraft nach UNTEN
@@ -600,7 +589,6 @@ if __name__ == "__main__":
     print(f"Rollenlager: Knoten {bottom_right} (rechts unten)")
     print(f"Kraft auf Knoten {top_center} (oben mitte)")
 
-    # 4. Berechnen
     system.set_boundary_conditions(F, u_fixed_idx)
     system.assemble_global_stiffness()
     system.solve()
@@ -610,14 +598,13 @@ if __name__ == "__main__":
 
     print(f"\nStartmasse: {len(system.nodes)} Knoten")
 
-    # 5. Optimieren! Versuche ~40% der Knoten zu löschen
     to_delete = int(len(nodes) * 0.4)
     print(f"Versuche {to_delete} Knoten zu löschen...\n")
     system.reduce_mass(to_delete)
 
     print(f"\nEndmasse: {len(system.nodes)} Knoten")
 
-    # 6. Ergebnis zeichnen
+    # Ergebnis zeichnen
     pos = {node.id: (node.x, node.z) for node in system.nodes.values()}
     
     plt.figure(figsize=(14, 5))
