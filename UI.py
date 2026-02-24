@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import json
 import io
 from PIL import Image
+from streamlit_drawable_canvas import st_canvas
 from system import System, create_mbb_beam, create_from_image, plot_structure, plot_full_mbb
 
 st.set_page_config(page_title="Topology Optimizer", layout="wide")
@@ -26,6 +27,20 @@ with st.sidebar:
     if uploaded_file is not None:
         st.session_state.loaded_data = json.load(uploaded_file)
         st.success("Datei geladen! Drücke 'Simulation Starten'.")
+
+    st.header("✏️ Struktur zeichnen")
+    stroke_width = st.slider("Strichbreite", 3, 15, 8)
+    canvas_result = st_canvas(
+        fill_color="#000000",
+        stroke_width=stroke_width,
+        stroke_color="#000000",
+        background_color="#FFFFFF",
+        width=400,
+        height=200,
+        drawing_mode="freedraw",
+        key="drawable_canvas",
+    )
+    use_canvas = st.checkbox("Zeichnung als Struktur verwenden", value=False)
 
     st.header("📷 Bild als Struktur")
     uploaded_img = st.file_uploader("Bild laden (.png, .jpg)", type=["png", "jpg", "jpeg"])
@@ -104,8 +119,18 @@ def figure_to_png_bytes(fig):
 
 
 # ── Struktur erstellen & Vorschau ──────────────────────────
-# Struktur erstellen: Bild > JSON > Gitter
-if uploaded_img is not None:
+# Struktur erstellen: Canvas > Bild > JSON > Gitter
+is_mbb = False
+if use_canvas and canvas_result is not None and canvas_result.image_data is not None:
+    canvas_img = Image.fromarray(canvas_result.image_data.astype("uint8"), "RGBA").convert("L")
+    if max(canvas_img.size) > 30:
+        canvas_img.thumbnail((30, 30))
+    img_array = np.array(canvas_img)
+    nodes, springs, width, height = create_from_image(img_array, 200)
+    system = System(nodes, springs)
+    st.info(f"Struktur aus Zeichnung: {len(nodes)} Knoten, {len(springs)} Federn ({img_array.shape[1]}×{img_array.shape[0]} px)")
+
+elif uploaded_img is not None:
     img = Image.open(uploaded_img).convert("L")
     if max(img.size) > 30:
         img.thumbnail((30, 30))
@@ -121,6 +146,7 @@ elif st.session_state.loaded_data is not None:
 else:
     nodes, springs = create_mbb_beam(width, height)
     system = System(nodes, springs)
+    is_mbb = True
 
 # Randbedingungen setzen
 festlager_ids   = parse_node_ids(festlager_input)
@@ -133,16 +159,21 @@ for nid in festlager_ids:
 for nid in rollenlager_ids:
     u_fixed_idx.append(2 * nid + 1) # z-fixed
 
-#Alle Knoten in der letzten Spalte (width - 1) dürfen nicht nach links/rechts
-for row in range(height):
-    sym_node_id = (width - 1) * height + row
-    u_fixed_idx.append(2 * sym_node_id) # NUR x-Richtung fixieren
+#Alle Knoten in der letzten Spalte (width - 1) dürfen nicht nach links/rechts (nur MBB)
+if is_mbb:
+    for row in range(height):
+        sym_node_id = (width - 1) * height + row
+        if sym_node_id in nodes:
+            u_fixed_idx.append(2 * sym_node_id) # NUR x-Richtung fixieren
 
 max_id = max(nodes.keys())
 dim = 2 * (max_id + 1)
 F = parse_forces(kraefte_input, dim)
 
 force_node_id = (width - 1) * height + (height - 1) #Kraftangriffspunkt jetzt oben rechts
+if force_node_id not in nodes:
+    # Fallback: höchster existierender Knoten
+    force_node_id = max_id
 F = np.zeros(dim)
 F[2 * force_node_id + 1] = -10 # Kraft nach unten am Symmetriepunkt
 
@@ -152,7 +183,10 @@ system.set_boundary_conditions(F, u_fixed_idx)
 st.subheader("Ausgangszustand")
 system.assemble_global_stiffness()
 system.solve()
-st.pyplot(plot_full_mbb(system, "Ausgangsstruktur", "jet", deformation_scale, show_labels))
+if is_mbb:
+    st.pyplot(plot_full_mbb(system, "Ausgangsstruktur", "jet", deformation_scale, show_labels))
+else:
+    st.pyplot(plot_structure(system, "Ausgangsstruktur", show_labels, "jet", deformation_scale))
 
 if "latest_system_state" not in st.session_state:
     st.session_state.latest_system_state = None
@@ -200,7 +234,10 @@ if start_btn:
         st.subheader("Optimiertes Ergebnis")
         st.success(f"Verbleibende Masse: {remaining} Knoten (-{remove_pct}%)")
 
-        result_fig = plot_full_mbb(system, "Optimiertes Ergebnis", "jet", 0.01, show_labels)
+        if is_mbb:
+            result_fig = plot_full_mbb(system, "Optimiertes Ergebnis", "jet", 0.01, show_labels)
+        else:
+            result_fig = plot_structure(system, "Optimiertes Ergebnis", show_labels, "jet", 0.01)
         st.pyplot(result_fig)
 
         # Speichern-Bereich
