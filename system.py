@@ -1,3 +1,4 @@
+from platform import node
 import numpy as np
 import numpy.typing as npt
 import networkx as nx
@@ -167,30 +168,47 @@ class System:
 
         return graph_structure        
 
-    def sort_nodes_by_relevance(self)-> list [int]:
-
-        dict_to_sort = dict()
-
-        for node in self.nodes.values():    #für alle Nodes in nodes(dict)
-            total_work_for_node = 0.0
+    def sort_nodes_by_relevance(self, abstand: float = 1.5) -> list[int]:    
+        raw_energy = dict()
+        
+        for node in self.nodes.values():
+            total_work = 0.0
 
             for edge in self.graph_structure.edges(node.id, data=True):
                 u, v, data = edge
                 single_weight = data['weight']
+                total_work += single_weight / 2.0  # Jede Kante gehört zu 2 Knoten
+            raw_energy[node.id] = total_work
+
+        dict_to_sort = dict()
+
+        #sensitivitätsfilter (Nachbarschafts-Gewichtung):
+        #So wollen wir verhindern, dass einzelne Stränge im Tragwerk entstehen, indem man versucht das Material beieinander zu behalten, denn ansonsten können die einzelnen stränge zwar Energie aufnehemen, sind aber
+        #realisitisch gesehen komplett unbrauchbar da sie bei kleinsten äußeren Einflüssen wegknicken würden
+
+        for node in self.nodes.values():
+            #wie vorher
+            is_fixed = (2 * node.id) in self.u_fixed_idx or (2 * node.id + 1) in self.u_fixed_idx
+            is_force = self.F[2*node.id] != 0.0 or self.F[2*node.id+1] != 0.0
+
+            if is_fixed or is_force:
+                dict_to_sort[node.id] = float('inf')
+            else:
+                total = 0.0
                 
-                # Sicherstellung, dass die "wichtigsten" Knoten (fixe und Knoten mit Kräften) nie rausgelöscht werden
-                if node.id in self.u_fixed_idx or self.F[2*node.id] != 0.0 or self.F[2*node.id+1] != 0.0:
-                    total_work_for_node = float('inf')  # fixe oder Knoten wo F wirkt nach unten sortieren
-                    #damit sie nie aufgrund von Topologieoptimierung rausgelöscht werden
-                else:
-                    total_work_for_node += single_weight/2 # da jede Kante zu 2 Knoten gehört-->/2
+                for neighbor in self.nodes.values():
+                    # Geometrischen Abstand berechnen
+                    dist = np.sqrt((node.x - neighbor.x)**2 + (node.z - neighbor.z)**2)
+                    
+                    if dist <= abstand:
+                        weight = abstand - dist
+                        total += weight * raw_energy[neighbor.id]
 
-            dict_to_sort[node.id] = total_work_for_node
+                dict_to_sort[node.id] = total
 
+        #wiederum sortieren, damit die Knoten mit der geringsten Energie (also die "unwichtigsten") zuerst gelöscht werden
         sorted_dict = dict(sorted(dict_to_sort.items(), key=lambda item: item[1]))
         self.ids_sorted = list(sorted_dict.keys())
-        print(f"{self.ids_sorted=}")
-
         return self.ids_sorted
     
     def save_to_dict(self) -> dict:
@@ -246,7 +264,6 @@ class System:
              self.create_graph_structure(None)
              self.sort_nodes_by_relevance()
 
-        #Kopie der Liste
         candidates = self.ids_sorted.copy() 
 
         # Wir laufen so lange, wie wir noch löschen müssen (j < del_amount)
@@ -300,6 +317,19 @@ class System:
                         
                         if does_path_exist: 
                             break
+                
+                #Kinematische Stabilitätsprüfung
+                #Verhindert, dass Knoten gelöscht werden, deren Fehlen zu instabilen Einzelsträngen führen würde.
+
+                if does_path_exist:
+                    for node_id in new_graph_w_reduced_nodes.nodes():
+
+                        if node_id not in force_nodes and node_id not in fixed_nodes:
+                            # Ein interner Fachwerkknoten braucht mind. 3 Federn, sonst ist es ein loser Faden
+                            if new_graph_w_reduced_nodes.degree(node_id) < 3:
+                                does_path_exist = False
+                                break # Abbruch, diese Löschung erzeugt einen instabilen Strang!
+
 
                 if does_path_exist:
                     self.nodes = nodes_try # Den echten Zustand aktualisieren
@@ -308,7 +338,10 @@ class System:
                     print(f"Knoten {node_to_delete} erfolgreich gelöscht. ({j}/{del_amount})")
                     # Callback für Zwischenschritt-Visualisierung
                     if callback is not None:
-                        callback(j, del_amount, self)
+                        should_stop = callback(j, del_amount, self)
+                        if should_stop:
+                            print("Optimierung vom Benutzer unterbrochen.")
+                            return len(self.nodes)
                     break 
                 else:
                     # Wir gehen einfach in die nächste Runde und nehmen den nächsten Kandidaten
@@ -473,6 +506,68 @@ def plot_structure(system: System, title: str = "Struktur", show_labels: bool = 
     ax.axis('off')
     return fig
 
+#Die folgende Funktion ist für die Darstellung der gespiegelten Gesamtstruktur nach der Optimierung gedacht
+def plot_full_mbb(system, title="Optimierte Gesamtstruktur", colormap="jet", deformation_scale: float = 0.0, show_labels: bool = False):
+    fig, ax = plt.subplots(figsize=(10, 5))
+
+    nodes = system.nodes
+    springs = system.springs
+    
+    max_x = max(n.x for n in nodes.values())
+
+    #Hilfsfunktion um die verschobenen Koordinaten zu bekommen, damit die Verformung auch in der gespiegelten Struktur sichtbar wird
+    def get_def_pos(node):
+        x, z = node.x, node.z
+        if deformation_scale > 0 and system.u is not None:
+            idx = node.id
+            if 2*idx+1 < len(system.u):
+                x += deformation_scale * system.u[2*idx]     # Verschiebung in x
+                z += deformation_scale * system.u[2*idx+1]   # Verschiebung in z
+        return x, z
+
+    # Energie-Werte für die farbliche Darstellung sammeln
+    energies = []
+    valid_springs = []
+    if system.u is not None:
+        for s in springs:
+            if s.node_i.id in nodes and s.node_j.id in nodes:
+                val = s.calc_weighting(system.u)
+                energies.append(val)
+                valid_springs.append(s)
+
+    # Normierung der Farben wie in plot_structure
+    if energies:
+        log_energies = np.log1p(energies)
+        max_log = max(log_energies) if max(log_energies) > 0 else 1.0
+        norm_energies = log_energies / max_log
+        cmap = plt.get_cmap(colormap)
+
+        for idx, s in enumerate(valid_springs):
+            n1 = nodes[s.node_i.id]
+            n2 = nodes[s.node_j.id]
+            
+            #linke Verformungen
+            x1_def, z1_def = get_def_pos(n1)
+            x2_def, z2_def = get_def_pos(n2)
+
+            color = cmap(norm_energies[idx])
+            weight = 1.0 + 2.0 * norm_energies[idx]
+
+            # Original (Links) gezeichnet mit Verformung
+            ax.plot([x1_def, x2_def], [z1_def, z2_def], color=color, lw=weight, alpha=0.8)
+            
+            # Spiegelbild (Rechts) gezeichnet mit Verformung
+            ax.plot([2*max_x - x1_def, 2*max_x - x2_def], [z1_def, z2_def], color=color, lw=weight, alpha=0.8)
+
+    if show_labels:
+        for node in nodes.values():
+            x, z = get_def_pos(node)
+            ax.text(x, z, str(node.id), fontsize=6, color='red', ha='center', va='center')
+    
+    ax.set_title(title)
+    ax.set_aspect('equal')
+    ax.axis('off')
+    return fig
 if __name__ == "__main__":
 
     # 1. Gitter erzeugen
@@ -492,13 +587,13 @@ if __name__ == "__main__":
     u_fixed_idx = [
         2 * bottom_left,       # x-Richtung fest (Festlager)
         2 * bottom_left + 1,   # z-Richtung fest (Festlager)
-        2 * bottom_right + 1   # z-Richtung fest (Rollenlager, x ist frei!)
+        2 * bottom_right + 1   # z-Richtung fest (Rollenlager, x ist frei)
     ]
 
     # 3. Kraft F oben in der Mitte, nach unten
     F = np.zeros(2 * len(nodes))
-    top_center = (width // 2) * height + (height - 1)  # Knoten oben mitte
-    F[2 * top_center + 1] = -10.0  # Kraft nach UNTEN
+    top_center = (width // 2) * height + (height - 1)
+    F[2 * top_center + 1] = -0.1  # Kraft nach UNTEN
 
     print(f"Gitter: {width}x{height} = {len(nodes)} Knoten, {len(springs)} Federn")
     print(f"Festlager: Knoten {bottom_left} (links unten)")
@@ -530,4 +625,13 @@ if __name__ == "__main__":
             node_color='lightblue', edge_color='gray', node_size=200, font_size=7)
     plt.title("MBB-Balken nach Topologieoptimierung")
     plt.axis('equal')
+
+    
+    fig = plot_structure(
+        system, 
+        title=f"Optimierte Struktur (Verformung skaliert mit 0.015x)",        
+        show_labels=False, 
+        colormap="jet", 
+        deformation_scale=0.015
+    )
     plt.show()

@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import json
 import io
 from PIL import Image
-from graph4 import System, create_mbb_beam, create_from_image, plot_structure
+from system import System, create_mbb_beam, create_from_image, plot_structure, plot_full_mbb
 
 st.set_page_config(page_title="Topology Optimizer", layout="wide")
 st.title("Topologieoptimierung")
@@ -18,8 +18,8 @@ if "loaded_data" not in st.session_state:
 with st.sidebar:
 
     st.header("1. Gitter-Einstellungen")
-    width  = st.slider("Breite (Knoten)",  min_value=5, max_value=50, value=20)
-    height = st.slider("Höhe (Knoten)",    min_value=3, max_value=20, value=5)
+    width  = st.slider(" Halbe Breite (Knoten)",  min_value=17, max_value=27, value=20)
+    height = st.slider("Höhe (Knoten)",    min_value=6, max_value=20, value=10)
 
     st.header("📂 Laden")
     uploaded_file = st.file_uploader("Struktur laden (.json)", type="json")
@@ -37,12 +37,12 @@ with st.sidebar:
     st.caption("Knoten-ID = Spalte × Höhe + Zeile  (ab 0)")
 
     festlager_input = st.text_input(
-        "Festlager-Knoten (x+z fest)", value="0",
+        "Festlager-Knoten (x+z fest)", value="",
         help="Kommagetrennte Knoten-IDs, z.B. '0, 5'")
 
-    default_rollenlager = str((width - 1) * height)
+    #default_rollenlager = str((width - 1) * height)
     rollenlager_input = st.text_input(
-        "Rollenlager-Knoten (nur z fest)", value=default_rollenlager,
+        "Rollenlager-Knoten (nur z fest)", value="0",#an id-stelle 0
         help="Kommagetrennte Knoten-IDs")
 
     st.header("3. Externe Kräfte")
@@ -53,7 +53,7 @@ with st.sidebar:
         help="Pro Zeile: Knoten-ID, Fx, Fz\nBeispiel:\n54, 0, -10\n27, 5, 0")
 
     st.header("4. Optimierung")
-    remove_pct = st.slider("Masse entfernen (%)", 0, 90, 50)
+    remove_pct = st.slider("Masse entfernen (%)", 0, 40, 30)
 
     st.header("5. Visualisierung")
     show_labels      = st.checkbox("Knoten-IDs anzeigen",     value=False)
@@ -128,14 +128,23 @@ rollenlager_ids = parse_node_ids(rollenlager_input)
 
 u_fixed_idx = []
 for nid in festlager_ids:
-    u_fixed_idx.append(2 * nid)
-    u_fixed_idx.append(2 * nid + 1)
+    u_fixed_idx.append(2 * nid)     # x-fixed
+    u_fixed_idx.append(2 * nid + 1) # z-fixed
 for nid in rollenlager_ids:
-    u_fixed_idx.append(2 * nid + 1)
+    u_fixed_idx.append(2 * nid + 1) # z-fixed
+
+#Alle Knoten in der letzten Spalte (width - 1) dürfen nicht nach links/rechts
+for row in range(height):
+    sym_node_id = (width - 1) * height + row
+    u_fixed_idx.append(2 * sym_node_id) # NUR x-Richtung fixieren
 
 max_id = max(nodes.keys())
 dim = 2 * (max_id + 1)
 F = parse_forces(kraefte_input, dim)
+
+force_node_id = (width - 1) * height + (height - 1) #Kraftangriffspunkt jetzt oben rechts
+F = np.zeros(dim)
+F[2 * force_node_id + 1] = -10 # Kraft nach unten am Symmetriepunkt
 
 system.set_boundary_conditions(F, u_fixed_idx)
 
@@ -143,32 +152,44 @@ system.set_boundary_conditions(F, u_fixed_idx)
 st.subheader("Ausgangszustand")
 system.assemble_global_stiffness()
 system.solve()
-st.pyplot(plot_structure(system, "Vollständige Struktur", show_labels, "jet", deformation_scale))
+st.pyplot(plot_full_mbb(system, "Ausgangsstruktur", "jet", deformation_scale, show_labels))
 
-# ── Optimierung bei clicken ─────────────────────────────────────────────
+if "latest_system_state" not in st.session_state:
+    st.session_state.latest_system_state = None
+
+# ── Optimierung bei clicken ───────────────────────────────────────────
 if start_btn:
     to_delete = int(len(nodes) * (remove_pct / 100))
     progress_bar = st.progress(0, text=f"Lösche {to_delete} Knoten...")
     intermediate_placeholder = st.empty()
+    stop_placeholder = st.empty()  # Placeholder für Stop-Button
     gif_frames = []  # Frames für GIF sammeln
 
     def optimization_callback(j, total, sys):
         pct = int((j / total) * 100)
         progress_bar.progress(pct, text=f"Optimierung: {j}/{total} Knoten gelöscht...")
+        st.session_state.latest_system_state = sys.save_to_dict()
+        if stop_placeholder.button("⏹ Stopp & Speichern", key=f"stop_btn_{j}"):
+             st.warning("Optimierung wird unterbrochen...")
+             return True # Signal zum Abbrechen an reduce_mass
+
         needs_plot = show_intermediate or (j % gif_every_n == 0)
         if needs_plot:
             sys.assemble_global_stiffness()
             sys.solve()
             fig = plot_structure(sys, f"Zwischenschritt: {j}/{total} gelöscht",
-                                show_labels, "jet", deformation_scale)
+                                show_labels, "jet", 0.01)
             if show_intermediate:
                 intermediate_placeholder.pyplot(fig)
             if j % gif_every_n == 0:
                 gif_frames.append(figure_to_png_bytes(fig))
             plt.close(fig)
+        return False
 
     try:
         remaining = system.reduce_mass(to_delete, callback=optimization_callback)
+        
+        stop_placeholder.empty() # Stop-Button entfernen wenn fertig
         progress_bar.progress(100, text="Fertig!")
         intermediate_placeholder.empty()
 
@@ -179,8 +200,7 @@ if start_btn:
         st.subheader("Optimiertes Ergebnis")
         st.success(f"Verbleibende Masse: {remaining} Knoten (-{remove_pct}%)")
 
-        result_fig = plot_structure(system, "Optimierte Topologie",
-                                    show_labels, "jet", deformation_scale)
+        result_fig = plot_full_mbb(system, "Optimiertes Ergebnis", "jet", 0.01, show_labels)
         st.pyplot(result_fig)
 
         # Speichern-Bereich
@@ -224,6 +244,32 @@ if start_btn:
             file_name="topologie_struktur.json",
             mime="application/json"
         )
+        
+        # Zustand zurücksetzen nach erfolgreichem Lauf
+        st.session_state.latest_system_state = None
 
     except Exception as e:
         st.error(f"Fehler während der Optimierung: {e}")
+
+# Prüfen ob wir einen abgebrochenen Zustand haben
+if "latest_system_state" in st.session_state and st.session_state.latest_system_state is not None:
+    st.warning("Einen unterbrochenen Optimierungszustand gefunden.")
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        if st.button("▶️ Weiterführen (Resume)"):
+            st.session_state.loaded_data = st.session_state.latest_system_state
+            st.session_state.latest_system_state = None
+            st.rerun()
+            
+    with col2:
+        st.download_button(
+            label="💾 Stand speichern (JSON)",
+            data=json.dumps(st.session_state.latest_system_state, indent=2),
+            file_name="topologie_zwischenstand.json",
+            mime="application/json"
+        )
+    with col3:
+        if st.button("🗑️ Verwerfen"):
+            st.session_state.latest_system_state = None
+            st.rerun()
