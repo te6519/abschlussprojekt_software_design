@@ -152,18 +152,27 @@ system.set_boundary_conditions(F, u_fixed_idx)
 st.subheader("Ausgangszustand")
 system.assemble_global_stiffness()
 system.solve()
-st.pyplot(plot_full_mbb(system, "Ausgangsstruktur", "jet", deformation_scale))
+st.pyplot(plot_full_mbb(system, "Ausgangsstruktur", "jet", deformation_scale, show_labels))
+
+if "latest_system_state" not in st.session_state:
+    st.session_state.latest_system_state = None
 
 # ── Optimierung bei clicken ───────────────────────────────────────────
 if start_btn:
     to_delete = int(len(nodes) * (remove_pct / 100))
     progress_bar = st.progress(0, text=f"Lösche {to_delete} Knoten...")
     intermediate_placeholder = st.empty()
+    stop_placeholder = st.empty()  # Placeholder für Stop-Button
     gif_frames = []  # Frames für GIF sammeln
 
     def optimization_callback(j, total, sys):
         pct = int((j / total) * 100)
         progress_bar.progress(pct, text=f"Optimierung: {j}/{total} Knoten gelöscht...")
+        st.session_state.latest_system_state = sys.save_to_dict()
+        if stop_placeholder.button("⏹ Stopp & Speichern", key=f"stop_btn_{j}"):
+             st.warning("Optimierung wird unterbrochen...")
+             return True # Signal zum Abbrechen an reduce_mass
+
         needs_plot = show_intermediate or (j % gif_every_n == 0)
         if needs_plot:
             sys.assemble_global_stiffness()
@@ -175,9 +184,12 @@ if start_btn:
             if j % gif_every_n == 0:
                 gif_frames.append(figure_to_png_bytes(fig))
             plt.close(fig)
+        return False
 
     try:
         remaining = system.reduce_mass(to_delete, callback=optimization_callback)
+        
+        stop_placeholder.empty() # Stop-Button entfernen wenn fertig
         progress_bar.progress(100, text="Fertig!")
         intermediate_placeholder.empty()
 
@@ -188,7 +200,7 @@ if start_btn:
         st.subheader("Optimiertes Ergebnis")
         st.success(f"Verbleibende Masse: {remaining} Knoten (-{remove_pct}%)")
 
-        result_fig = plot_full_mbb(system, None, None, 0.01)
+        result_fig = plot_full_mbb(system, "Optimiertes Ergebnis", "jet", 0.01, show_labels)
         st.pyplot(result_fig)
 
         # Speichern-Bereich
@@ -232,6 +244,26 @@ if start_btn:
             file_name="topologie_struktur.json",
             mime="application/json"
         )
+        
+        # Zustand zurücksetzen nach erfolgreichem Lauf
+        st.session_state.latest_system_state = None
 
     except Exception as e:
         st.error(f"Fehler während der Optimierung: {e}")
+
+# Prüfen ob wir einen abgebrochenen Zustand haben
+if "latest_system_state" in st.session_state and st.session_state.latest_system_state is not None:
+    st.warning("Einen unterbrochenen Optimierungszustand gefunden.")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.download_button(
+            label="💾 Unterbrochenen Stand speichern (JSON)",
+            data=json.dumps(st.session_state.latest_system_state, indent=2),
+            file_name="topologie_zwischenstand.json",
+            mime="application/json"
+        )
+    with col2:
+        if st.button("🗑️ Zwischenstand verwerfen"):
+            st.session_state.latest_system_state = None
+            st.rerun()

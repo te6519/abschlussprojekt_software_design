@@ -338,7 +338,10 @@ class System:
                     print(f"Knoten {node_to_delete} erfolgreich gelöscht. ({j}/{del_amount})")
                     # Callback für Zwischenschritt-Visualisierung
                     if callback is not None:
-                        callback(j, del_amount, self)
+                        should_stop = callback(j, del_amount, self)
+                        if should_stop:
+                            print("Optimierung vom Benutzer unterbrochen.")
+                            return len(self.nodes)
                     break 
                 else:
                     # Wir gehen einfach in die nächste Runde und nehmen den nächsten Kandidaten
@@ -504,7 +507,7 @@ def plot_structure(system: System, title: str = "Struktur", show_labels: bool = 
     return fig
 
 #Die folgende Funktion ist für die Darstellung der gespiegelten Gesamtstruktur nach der Optimierung gedacht
-def plot_full_mbb(system, title="Optimierte Gesamtstruktur", colormap="jet", deformation_scale: float = 0.0):
+def plot_full_mbb(system, title="Optimierte Gesamtstruktur", colormap="jet", deformation_scale: float = 0.0, show_labels: bool = False):
     fig, ax = plt.subplots(figsize=(10, 5))
 
     nodes = system.nodes
@@ -555,6 +558,11 @@ def plot_full_mbb(system, title="Optimierte Gesamtstruktur", colormap="jet", def
             
             # Spiegelbild (Rechts) gezeichnet mit Verformung
             ax.plot([2*max_x - x1_def, 2*max_x - x2_def], [z1_def, z2_def], color=color, lw=weight, alpha=0.8)
+
+    if show_labels:
+        for node in nodes.values():
+            x, z = get_def_pos(node)
+            ax.text(x, z, str(node.id), fontsize=6, color='red', ha='center', va='center')
     
     ax.set_title(title)
     ax.set_aspect('equal')
