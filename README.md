@@ -1,100 +1,103 @@
 # 2D Topologieoptimierer für Fachwerke
 
-Dieses Projekt implementiert einen 2D-Topologieoptimierer, der die **Ground Structure Methode** nutzt, um optimale Fachwerkstrukturen zu finden. Über ein interaktives Web-Interface (Streamlit) können Lastfälle und Randbedingungen definiert in der UI gezeichnet oder als Bild importiert werden zudem kann der Optimierungsprozess live verfolgt werden.
+## Einleitung
 
-## Beschreibung
+Dieses Projekt implementiert einen 2D-Topologieoptimierer, der basierend auf der **Ground Structure Methode** optimale Fachwerkstrukturen ermittelt. Die Anwendung bietet ein interaktives **Streamlit-Webinterface**, in dem Nutzer Lastfälle definieren, Strukturen zeichnen und den Optimierungsprozess live verfolgen können.
 
-Das Programm generiert zunächst eine dichte Grundstruktur aus Knoten und Federelementen, die ein Gitter bilden. Ziel ist es, ineffizientes Material zu entfernen, bis nur noch die lastabtragende Struktur übrig bleibt.
+Hier geht es zur Live-Demo: (https://abschlussprojektsoftwaredesignelimaxi.streamlit.app/)
 
-**Der Optimierungsprozess im Detail:**
+## Beschreibung der Methode
 
-1.  **FEM-Analyse (Systemlöser):**
-    Berechnung der Verschiebungen ($u$) und Kräfte im aktuellen System mittels der direkten Steifigkeitsmethode. Es wird das lineare Gleichungssystem $K \cdot u = F$ gelöst.
+Der Optimierer verwendet ein **"Hard-Kill"-Verfahren** auf einem diskreten Fachwerk. Dabei wird iterativ Material entfernt, das nur geringfügig zur Steifigkeit der Gesamtstruktur beiträgt.
 
-2.  **Sensitivitätsanalyse:**
-    Berechnung der Dehnungsenergie für jedes Federelement. Elemente mit hoher Dehnungsenergie sind essenziell für die Struktur.
-
-3.  **Filterung & Knotenbewertung:**
-    Um "Checkerboard-Muster" und instabile Einzelstränge zu vermeiden, wird ein **Sensitivitätsfilter** angewendet. Die Relevanz eines Knotens hängt nicht nur von ihm selbst ab, sondern auch von der Energie seiner Nachbarn (gewichteter Durchschnitt basierend auf dem geometrischen Abstand).
-
-4.  **Iterative Reduktion:**
-    Knoten mit dem geringsten Energiebeitrag werden nacheinander aus dem System entfernt.
-
-5.  **Stabilitäts- & Konnektivitäts-Checks:**
-    Vor jedem Löschen prüft das System zwei Bedingungen:
-    *   **Pfad-Check:** Bleibt mittels `networkx` ein Pfad zwischen Lasteinleitung und Lager bestehen?
-    *   **Kinematik-Check:** Hat ein Knoten noch genügend Anbindungen (Grad $\ge 3$), um stabil zu sein?
-    Ist eine Bedingung verletzt, wird der Knoten behalten und der nächst-schlechteste Kandidat geprüft.
+Der iterative Zyklus besteht aus drei Schritten:
+1.  **FEM-Berechnung:** Lösung des linearen Gleichungssystems $K \cdot u = F$ mittels der Direkten Steifigkeitsmethode, um Verschiebungen und Kräfte im Netzwerk zu bestimmen.
+2.  **Energie-Bewertung:** Berechnung der Dehnungsenergie für jedes Element.
+3.  **Reduktion:** Der Knoten mit der geringsten, gewichteten Gesamtenergie (und damit die an ihn angeschlossenen Stäbe) wird aus dem System entfernt.
 
 ## Anforderungen
 
-Die Anwendung ist in Python 3 geschrieben. Die Abhängigkeiten finden Sie in `requirements.txt`.
-Hauptsächlich werden verwendet:
+Die Software setzt **Python 3** voraus und nutzt folgende essenzielle Bibliotheken:
+*   `numpy`: Performante numerische Berechnungen.
+*   `streamlit`: Aufbau der Web-Benutzeroberfläche.
+*   `networkx`: Graphentheorie für Konnektivitäts- und Stabilitätsprüfungen.
+*   `matplotlib`: Visualisierung der Ergebnisse und Heatmaps.
+*   `pillow`: Bildverarbeitung für den Import von Strukturen.
+*   `streamlit-drawable-canvas`: Zeichnen in der UI
 
-*   `numpy` (Numerik, Lösung linearer Gleichungssysteme)
-*   `streamlit` (Frontend & Visualisierung)
-    `streamlit-drawable-canvas` (Zeichnen in der UI)
-*   `networkx` (Graphentheorie für Konnektivitäts-Checks)
-*   `matplotlib` (Plotting der Fachwerke & Heatmaps)
-*   `pillow` (Bildverarbeitung für den Import von Strukturen)
+## Installation & Deployment
 
-## Installation
+### Lokale Installation
 
-Installieren Sie die Abhängigkeiten mit folgendem Befehl:
+1.  Installieren Sie die Abhängigkeiten:
+    ```bash
+    pip install -r requirements.txt
+    ```
+2.  Starten Sie die Anwendung:
+    ```bash
+    streamlit run UI.py
+    ```
 
-```bash
-pip install -r requirements.txt
-```
+### Cloud Deployment
+Die Anwendung ist vollständig kompatibel mit der **Streamlit Community Cloud** und kann direkt aus dem GitHub-Repository heraus deployed werden.
 
 ## Nutzung
 
-Starten Sie die Anwendung über das Terminal:
+Der Workflow in der Benutzeroberfläche gliedert sich in 5 Schritte:
 
-```bash
-streamlit run ui.py
-```
-
-Das Web-Interface öffnet sich automatisch im Browser. Dort können Sie:
-1.  Ein Standard-Problem (MBB-Balken) konfigurieren.
-2.  Eigene Strukturen per **Freihand-Zeichnung** direkt im Browser skizzieren dafür ist es notwendig die Seitenleiste etwas zu vergrößern um die Zeichenfläche zu vergrößern.
-3.  Eigene Strukturen über schwarz-weiß Bilder importieren (schwarz = Material).
-4.  Den Optimierungsprozess starten und live beobachten, wie sich die Struktur entwickelt.
+1.  **Modusauswahl:** Wählen Sie zwischen "Symmetrisch" (performante MBB-Balken-Optimierung) und "Universell" (für freie Geometrien).
+2.  **Skizzieren/Importieren:** Zeichnen Sie den Bauraum direkt im Browser oder laden Sie ein Bild hoch.
+3.  **Randbedingungen & Lasten:** Definieren Sie externe Kräfte und Lagerpunkte.
+4.  **Optimierung starten:** Verfolgen Sie live, wie ineffizientes Material entfernt wird.
+5.  **Export:** Speichern Sie das Ergebnis als Bild, Animation (GIF) oder Datensatz (JSON).
 
 ## Projektstruktur
 
-Der Code wurde modularisiert, um die Wartbarkeit zu verbessern:
+Das Projekt trennt strikt zwischen Darstellung und Logik:
 
-*   **`ui.py` (Frontend)**:
-    Beinhaltet die Streamlit-Oberfläche. Hier werden Benutzereingaben verarbeitet, der Session-State verwaltet und die Plots dargestellt.
-*   **`system.py` (Kernlogik)**:
-    Hier liegt die gesamte "Intelligenz" des Programms.
-    *   `Node` & `Spring`: Datenklassen für die Elemente.
-    *   `System`: Klasse für die FEM-Berechnung (`assemble_global_stiffness`, `solve`), die Verwaltung der Topologie und die Optimierungsschleife (`reduce_mass`).
-    *   `plot_structure`: Funktionen zur Visualisierung mittels Matplotlib (inkl. Heatmaps).
-Im folgenden UML-Diagramm ist die Struktur des Codes dargestellt:
+*   **`UI.py` (Frontend):** Behandelt Benutzereingaben, Interaktion mit dem Canvas und die Visualisierung der Plots.
+*   **`system.py` (Backend):** Enthält die Kernlogik in den Klassen:
+    *   `System`: Verwaltung des Gesamtzustands und FEM-Löser.
+    *   `Node`: Repräsentation der Knotenpunkte.
+    *   `Spring`: Federelemente und Berechnung der lokalen Steifigkeitsmatrizen.
 
 ![UML Diagram](UML-Diagram.png)
 
+## Erfüllung der Anforderungen
+
+### Minimalanforderungen
+Die folgenden Pflichtkriterien wurden vollständig umgesetzt:
+
+- [x] **Python-Anwendung mit Web-UI (Streamlit)**
+- [x] **Topologieoptimierung beliebiger 2D-Strukturen**
+- [x] **Definition der Ausgangsstruktur** (Bauraum, Randbedingungen, Externe Kräfte)
+- [x] **Visualisierung** (Vorher, Nachher, Verformung)
+- [x] **Speichern & Laden** des Projektzustands
+- [x] **Lösung mittels FEM** (Anlehnung an Finite Elemente Methode)
+- [x] **Stabilitätsverifikation** (Struktur fällt nicht auseinander)
+- [x] **Bild-Download** der optimierten Geometrie
+
+### Implementierte Erweiterungen
+Zusätzlich zu den Minimalanforderungen wurden folgende Erweiterungen implementiert:
+
+1.  **Hochladen eines Bildes (png, jpg):** Schwarze Pixel werden als Material interpretiert, weiße als Leerraum. Die Funktion `create_from_image` in `system.py` erzeugt daraus automatisch ein Knotengitter mit Federn. So lassen sich beliebige Bauraumgeometrien schnell definieren.
+2.  **Zeichnen der Struktur im UI:** Über `streamlit-drawable-canvas` kann der Bauraum direkt im Browser per Freihandzeichnung skizziert werden — ohne externen Bildeditor.
+3.  **Auszeichnungssprache (JSON) zum Speichern & Laden:** Der gesamte Systemzustand (Knoten, Federn, Kräfte, Randbedingungen) wird als JSON-Datei serialisiert (`save_to_dict` / `load_from_dict`). Dies ermöglicht das Herunterladen, erneute Hochladen und Fortsetzen einer unterbrochenen Optimierung.
+4.  **Visualisierung des Optimierungskriteriums als Heatmap:** Die Dehnungsenergie jedes Stabs wird farblich kodiert (logarithmische Skalierung, Colormap `jet`). So ist auf einen Blick erkennbar, welche Bereiche tragend sind und welche entfernt werden können.
+5.  **Animation als GIF speichern:** Der gesamte Optimierungsverlauf wird frameweise aufgezeichnet und als animiertes GIF exportiert. Die Schrittweite ist über den Slider "Jeden n-ten Schritt" konfigurierbar.
+
+Darüber hinaus wurden folgende **algorithmische Erweiterungen** implementiert:
+
+7.  **Sensitivitätsfilter:** Ein geometrischer Nachbarschaftsfilter (adaptiert nach Sigmund, 2001) verhindert isolierte "Spinnweben-Strukturen", indem die Energiedichte im Umfeld eines Knotens berücksichtigt wird.
+8.  **Erweiterte Stabilitätsprüfung:**
+    *   **Pfad-Check:** Stellt mittels `networkx` sicher, dass immer eine Verbindung zwischen Kraftangriffspunkt und Lager besteht.
+    *   **Kinematik-Check:** Verhindert instabile Knotenketten, indem eine minimale Anbindungszahl (Grad $\ge 3$) gefordert wird.
+9.  **Berechnungsmodi:**
+    *   *Symmetrisch (MBB-Halbmodell):* Nutzt Symmetrieeigenschaften für schnellere Berechnung und spiegelt das Ergebnis zur Gesamtdarstellung.
+    *   *Universell (Vollmodell):* Erlaubt völlig freie Gestaltung ohne Symmetriezwang mit frei wählbaren Lager- und Kraftpositionen.
+
 ## Quellen & Referenzen
 
-Die Implementierung basiert auf Methoden der Strukturmechanik und Informatik. Hier sind Quellen, die für das Schreiben des Codes geholfen haben
-
-1.  **Direct Stiffness Method (FEM)**
-    *   *Relevanz:* Kernstück von `system.py` zur Berechnung von $K$ und $u$.
-    *   *Quelle:* [Wikipedia: Direct Stiffness Method](https://en.wikipedia.org/wiki/Direct_stiffness_method) und Hilfestellungen vom Skript
-
-2.  **Sensitivitätsfilterung (Mesh-Independency)**
-    *   *Relevanz:* In `sort_nodes_by_relevance` nutzen wir eine gewichtete Nachbarschaftssuche. Dies ist angelehnt an Standardfilter in der Topologieoptimierung, um nummerische Instabilitäten zu glätten.
-    *   *Quelle:* [Sigmund, O., & Petersson, J. (1998). Numerical instabilities in topology optimization.](https://link.springer.com/article/10.1007/BF01214002)
-
-3.  **Graphentheorie (Konnektivität)**
-    *   *Relevanz:* Die Funktion `nx.has_path` und `nx.degree` verhindern, dass die Struktur während der Optimierung zerfällt.
-    *   *Quelle:* [NetworkX Documentation - Connectivity](https://networkx.org/documentation/stable/reference/algorithms/component.html)
-
-4.  **Matplotlib Colormaps & Plotting**
-    *   *Relevanz:* Darstellung der Spannungsverteilung ("Heatmap") in `plot_structure`.
-    *   *Quelle:* [Matplotlib Tutorials - Colormaps](https://matplotlib.org/stable/tutorials/colors/colormaps.html)
-
-5.  **Python Scientific Stack**
-    *   *Streamlit:* [Docs](https://docs.streamlit.io/) für das UI.
-    *   *NumPy:* [Linalg.solve](https://numpy.org/doc/stable/reference/routines.linalg.html) zum Lösen der Gleichungssysteme.
+*   **FEM und Direct Stiffness Method:** Implementiert gemäß Standard-Lehrliteratur zur Finiten-Elemente-Methode.
+*   **Sensitivitätsfilter:** Adaptiert nach *Sigmund, O. (2001). A 99 line topology optimization code written in Matlab*.
+*   **Bibliotheken:** Dokumentationen von [NetworkX](https://networkx.org/) und [Matplotlib](https://matplotlib.org/).
