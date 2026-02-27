@@ -4,8 +4,6 @@
 
 Dieses Projekt implementiert einen 2D-Topologieoptimierer, der basierend auf der **Ground Structure Methode** optimale Fachwerkstrukturen ermittelt. Die Anwendung bietet ein interaktives **Streamlit-Webinterface**, in dem Nutzer Lastfälle definieren, Strukturen zeichnen und den Optimierungsprozess live verfolgen können.
 
-Hier geht es zur Live-Demo: (https://abschlussprojektsoftwaredesignelimaxi.streamlit.app/)
-
 ## Beschreibung der Methode
 
 Der Optimierer verwendet ein **"Hard-Kill"-Verfahren** auf einem diskreten Fachwerk. Dabei wird iterativ Material entfernt, das nur geringfügig zur Steifigkeit der Gesamtstruktur beiträgt.
@@ -39,13 +37,13 @@ Die Software setzt **Python 3** voraus und nutzt folgende essenzielle Bibliothek
     ```
 
 ### Cloud Deployment
-Die Anwendung ist vollständig kompatibel mit der **Streamlit Community Cloud** und kann direkt aus dem GitHub-Repository heraus deployed werden.
+Die app wurde auf der Streamlit Cloud deployed und kann mit diesem Link aufgerufen werden: (https://abschlussprojektsoftwaredesignelimaxi.streamlit.app/)
 
 ## Nutzung
 
 Der Workflow in der Benutzeroberfläche gliedert sich in 5 Schritte:
 
-1.  **Modusauswahl:** Wählen Sie zwischen "Symmetrisch" (performante MBB-Balken-Optimierung) und "Universell" (für freie Geometrien).
+1.  **Modusauswahl:** Wählen Sie zwischen "Symmetrisch" (MBB-Balken-Optimierung) und "Universell" (für freie Geometrien).
 2.  **Skizzieren/Importieren:** Zeichnen Sie den Bauraum direkt im Browser oder laden Sie ein Bild hoch.
 3.  **Randbedingungen & Lasten:** Definieren Sie externe Kräfte und Lagerpunkte.
 4.  **Optimierung starten:** Verfolgen Sie live, wie ineffizientes Material entfernt wird.
