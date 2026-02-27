@@ -102,7 +102,7 @@ Das folgende Beispiel zeigt die Optimierung eines MBB-Balkens (Knotengitter: 70 
 
 ![Ausgangsstruktur MBB-Balken](Ausgangslage_mbb.png)
 
-**Optimiertes Ergebnis 25 % Massereduktion):**
+**Optimiertes Ergebnis nach 35 % Massereduktion:**
 
 ![Optimierter MBB-Balken](optimierter_mbb_balken.png)
 
