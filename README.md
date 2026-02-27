@@ -75,9 +75,6 @@ Die folgenden Pflichtkriterien wurden vollständig umgesetzt:
 - [x] **Stabilitätsverifikation** (Struktur fällt nicht auseinander)
 - [x] **Bild-Download** der optimierten Geometrie
 
-![MBB-Ausgangssituation](Ausgangslage_mbb.png)
-![MBB-optimiert](optimierter_mbb_balken.png)
-
 ### Implementierte Erweiterungen
 Zusätzlich zu den Minimalanforderungen wurden folgende Erweiterungen implementiert:
 
@@ -96,6 +93,20 @@ Darüber hinaus wurden folgende **algorithmische Erweiterungen** implementiert:
 8.  **Berechnungsmodi:**
     *   *Symmetrisch (MBB-Halbmodell):* Nutzt Symmetrieeigenschaften für schnellere Berechnung und spiegelt das Ergebnis zur Gesamtdarstellung.
     *   *Universell (Vollmodell):* Erlaubt völlig freie Gestaltung ohne Symmetriezwang mit frei wählbaren Lager- und Kraftpositionen.
+
+## Beispiel: MBB-Balken
+
+Das folgende Beispiel zeigt die Optimierung eines MBB-Balkens (Knotengitter: 70 × 15).
+
+**Ausgangsstruktur:**
+
+![Ausgangsstruktur MBB-Balken](Ausgangslage_mbb.png)
+
+**Optimiertes Ergebnis 25 % Massereduktion):**
+
+![Optimierter MBB-Balken](optimierter_mbb_balken.png)
+
+Die Einfärbung zeigt die Dehnungsenergie der einzelnen Stäbe (Heatmap). Rot bedeutet hohe Beanspruchung, blau geringe.
 
 ## Quellen & Referenzen
 
