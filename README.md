@@ -75,6 +75,9 @@ Die folgenden Pflichtkriterien wurden vollständig umgesetzt:
 - [x] **Stabilitätsverifikation** (Struktur fällt nicht auseinander)
 - [x] **Bild-Download** der optimierten Geometrie
 
+![MBB-Ausgangssituation](Ausgangslage_mbb.png)
+![MBB-optimiert](optimierter_mbb_balken.png)
+
 ### Implementierte Erweiterungen
 Zusätzlich zu den Minimalanforderungen wurden folgende Erweiterungen implementiert:
 
@@ -86,11 +89,11 @@ Zusätzlich zu den Minimalanforderungen wurden folgende Erweiterungen implementi
 
 Darüber hinaus wurden folgende **algorithmische Erweiterungen** implementiert:
 
-7.  **Sensitivitätsfilter:** Ein geometrischer Nachbarschaftsfilter (adaptiert nach Sigmund, 2001) verhindert isolierte "Spinnweben-Strukturen", indem die Energiedichte im Umfeld eines Knotens berücksichtigt wird.
-8.  **Erweiterte Stabilitätsprüfung:**
+6.  **Sensitivitätsfilter:** Ein geometrischer Nachbarschaftsfilter (adaptiert nach Sigmund, 2001) verhindert isolierte "Spinnweben-Strukturen", indem die Energiedichte im Umfeld eines Knotens berücksichtigt wird.
+7.  **Erweiterte Stabilitätsprüfung:**
     *   **Pfad-Check:** Stellt mittels `networkx` sicher, dass immer eine Verbindung zwischen Kraftangriffspunkt und Lager besteht.
     *   **Kinematik-Check:** Verhindert instabile Knotenketten, indem eine minimale Anbindungszahl (Grad $\ge 3$) gefordert wird.
-9.  **Berechnungsmodi:**
+8.  **Berechnungsmodi:**
     *   *Symmetrisch (MBB-Halbmodell):* Nutzt Symmetrieeigenschaften für schnellere Berechnung und spiegelt das Ergebnis zur Gesamtdarstellung.
     *   *Universell (Vollmodell):* Erlaubt völlig freie Gestaltung ohne Symmetriezwang mit frei wählbaren Lager- und Kraftpositionen.
 
@@ -99,4 +102,4 @@ Darüber hinaus wurden folgende **algorithmische Erweiterungen** implementiert:
 *   **FEM und Direct Stiffness Method:** Implementiert gemäß Standard-Lehrliteratur zur Finiten-Elemente-Methode.
 *   **Sensitivitätsfilter:** Adaptiert nach *Sigmund, O. (2001). A 99 line topology optimization code written in Matlab*.
 *   **Bibliotheken:** Dokumentationen von [NetworkX](https://networkx.org/) und [Matplotlib](https://matplotlib.org/).
-*   **KI-Assistenz** Einsatz generativer KI-Modelle zur Effizienzsteigerung und Fehleranalyse im Debugging-Prozess.
+*   **KI-Assistenz** Einsatz generativer KI-Modelle zur Fehleranalyse im Debugging-Prozess.
