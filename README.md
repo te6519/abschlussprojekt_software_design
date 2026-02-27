@@ -101,3 +101,4 @@ Darüber hinaus wurden folgende **algorithmische Erweiterungen** implementiert:
 *   **FEM und Direct Stiffness Method:** Implementiert gemäß Standard-Lehrliteratur zur Finiten-Elemente-Methode.
 *   **Sensitivitätsfilter:** Adaptiert nach *Sigmund, O. (2001). A 99 line topology optimization code written in Matlab*.
 *   **Bibliotheken:** Dokumentationen von [NetworkX](https://networkx.org/) und [Matplotlib](https://matplotlib.org/).
+*   **KI-Assistenz** Einsatz generativer KI-Modelle zur Effizienzsteigerung und Fehleranalyse im Debugging-Prozess.
